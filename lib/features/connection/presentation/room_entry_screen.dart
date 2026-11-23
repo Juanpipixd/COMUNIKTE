@@ -408,7 +408,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                             style: TextStyle(fontSize: 11, color: HudTheme.textSecondary),
                           ),
                           value: _isHotspotMode,
-                          activeThumbColor: HudTheme.accentNeon,
+                          activeColor: HudTheme.accentNeon,
                           onChanged: _toggleHotspotMode,
                         ),
                         const Divider(color: HudTheme.border),

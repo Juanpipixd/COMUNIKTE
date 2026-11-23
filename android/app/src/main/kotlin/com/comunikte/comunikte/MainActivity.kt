@@ -12,6 +12,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "com.comunikte/audio_bridge"
     private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { /* Non-intrusive focus management */ }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -79,17 +81,19 @@ class MainActivity : FlutterActivity() {
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(playbackAttributes)
+                .setOnAudioFocusChangeListener(focusChangeListener)
                 .setAcceptsDelayedFocusGain(true)
                 .setWillPauseWhenDucked(false)
                 .build()
-            val res = am.requestAudioFocus(focusRequest)
+            focusRequest = req
+            val res = am.requestAudioFocus(req)
             res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
             val res = am.requestAudioFocus(
-                null,
+                focusChangeListener,
                 AudioManager.STREAM_VOICE_CALL,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
@@ -99,6 +103,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         stopSco()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+        }
         super.onDestroy()
     }
 }
