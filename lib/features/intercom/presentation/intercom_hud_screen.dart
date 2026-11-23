@@ -77,7 +77,7 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
                   children: [
                     Expanded(
                       child: _buildModeTab(
-                        label: 'MANOS LIBRES (VOZ CONTINUA)',
+                        label: 'MANOS LIBRES',
                         icon: Icons.record_voice_over_rounded,
                         isSelected: !isPtt,
                         onTap: () {
@@ -88,7 +88,7 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
                     ),
                     Expanded(
                       child: _buildModeTab(
-                        label: 'PULSAR PARA HABLAR (PTT)',
+                        label: 'PTT (PULSAR)',
                         icon: Icons.touch_app_rounded,
                         isSelected: isPtt,
                         onTap: () {
@@ -183,24 +183,32 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
               ? Border.all(color: HudTheme.accentNeon, width: 2)
               : null,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: isSelected ? HudTheme.accentNeon : HudTheme.textSecondary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 20,
                 color: isSelected ? HudTheme.accentNeon : HudTheme.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: isSelected ? HudTheme.accentNeon : HudTheme.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
