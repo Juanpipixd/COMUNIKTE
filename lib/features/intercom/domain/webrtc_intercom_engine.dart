@@ -50,14 +50,21 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   MediaStream? get localStream => _localStream;
   MediaStream? get remoteStream => _remoteStream;
 
-  // Configuración de Servidores STUN/TURN (Punto 2)
+  // Configuración de Servidores STUN/TURN con respaldo público de alta disponibilidad
   static final Map<String, dynamic> _rtcConfiguration = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
       {'urls': 'stun:stun2.l.google.com:19302'},
-      {'urls': 'stun:stun3.l.google.com:19302'},
-      {'urls': 'stun:stun4.l.google.com:19302'},
+      {
+        'urls': [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+        ],
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
     ],
     'sdpSemantics': 'unified-plan',
   };
@@ -137,6 +144,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     _peerConnection!.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'audio') {
         debugPrint('[WebRtcIntercomEngine] Track de audio remoto recibido.');
+        event.track.enabled = true;
         _remoteStream = event.streams.isNotEmpty ? event.streams[0] : null;
 
         // VINCULAR AL CONTROLADOR DE GANANCIA POR SOFTWARE (Punto 1.3)
@@ -179,10 +187,19 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     };
   }
 
-  /// Cuando un nuevo compañero se une a la sala, creamos la Oferta SDP.
+  /// Cuando un nuevo compañero se une a la sala, creamos la Oferta SDP evitando colisiones (Glare).
   Future<void> _handlePeerJoined(String peerId) async {
     _connectedPeerId = peerId;
     if (_peerConnection == null) await _createPeerConnection();
+
+    // Solo el peer con identificador menor inicia la oferta para evitar glare
+    final myId = signalingService.clientId ?? '';
+    final shouldCreateOffer = myId.isEmpty || peerId.isEmpty || myId.compareTo(peerId) < 0;
+
+    if (!shouldCreateOffer) {
+      debugPrint('[WebRtcIntercomEngine] Peer polite: esperando oferta SDP de $peerId');
+      return;
+    }
 
     try {
       final offerConstraints = <String, dynamic>{
@@ -194,7 +211,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
       // Forzar Opus en el SDP
       await _peerConnection!.setLocalDescription(offer);
       signalingService.sendOffer(offer);
-      debugPrint('[WebRtcIntercomEngine] Oferta SDP enviada al compañero.');
+      debugPrint('[WebRtcIntercomEngine] Oferta SDP enviada al compañero ($peerId).');
     } catch (e) {
       debugPrint('[WebRtcIntercomEngine] Error creando oferta SDP: $e');
     }

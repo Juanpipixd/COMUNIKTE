@@ -20,7 +20,7 @@ class RoomEntryScreen extends StatefulWidget {
 }
 
 class _RoomEntryScreenState extends State<RoomEntryScreen> {
-  static const String _defaultPublicServer = 'wss://webrtc-signaling-demo.glitch.me';
+  static const String _defaultPublicServer = 'Servidor Nube Comunikte (MQTT P2P)';
 
   final TextEditingController _roomController = TextEditingController();
   final TextEditingController _serverController = TextEditingController(
@@ -135,10 +135,12 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
       final engine = context.read<WebRtcIntercomEngine>();
 
       final clientId = 'rider_${Random().nextInt(10000)}';
+      final currentServer = _serverController.text.trim();
+      final effectiveServer = currentServer == _defaultPublicServer ? 'cloud' : currentServer;
 
-      // 1. Conectar señalización WebSocket
+      // 1. Conectar señalización (MQTT Cloud o WebSocket Local)
       await signaling.connectAndJoinRoom(
-        serverUrl: _serverController.text.trim(),
+        serverUrl: effectiveServer,
         roomId: roomId,
         clientId: clientId,
       );
@@ -408,7 +410,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                             style: TextStyle(fontSize: 11, color: HudTheme.textSecondary),
                           ),
                           value: _isHotspotMode,
-                          activeColor: HudTheme.accentNeon,
+                          activeThumbColor: HudTheme.accentNeon,
                           onChanged: _toggleHotspotMode,
                         ),
                         const Divider(color: HudTheme.border),

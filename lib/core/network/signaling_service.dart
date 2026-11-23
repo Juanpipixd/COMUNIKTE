@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum SignalingStatus {
@@ -11,12 +13,18 @@ enum SignalingStatus {
   error,
 }
 
-/// Servicio de Señalización para Intercomunicador P2P WebRTC (COMUNIKTE).
-/// Maneja la negociación SDP (Offer / Answer) y candidatos ICE mediante WebSocket
-/// con soporte para servidores remotos o Hotspot Local sin cobertura celular.
+/// Servicio de Señalización Híbrido para Intercomunicador P2P WebRTC (COMUNIKTE).
+///
+/// Soporta dos modos automáticos:
+/// 1. NUBE GLOBAL (MQTT Pub/Sub): Permite enlace por datos móviles (4G/5G) o Wi-Fi
+///    mediante brokers MQTT de alta disponibilidad sin requerir servidor propio.
+/// 2. MODO RURAL / HOTSPOT (WebSocket Local): Permite enlace en carretera sin cobertura
+///    mediante el microservidor local integrado (ws://192.168.43.1:8080).
 class SignalingService extends ChangeNotifier {
   WebSocketChannel? _channel;
-  StreamSubscription? _subscription;
+  StreamSubscription? _wsSubscription;
+  MqttServerClient? _mqttClient;
+  StreamSubscription? _mqttSubscription;
   Timer? _pingTimer;
 
   SignalingStatus _status = SignalingStatus.disconnected;
@@ -36,31 +44,52 @@ class SignalingService extends ChangeNotifier {
   Function(String peerId)? onPeerJoined;
   Function(String peerId)? onPeerLeft;
 
-  /// Conecta al servidor de señalización (WebSocket) e ingresa a la sala.
-  /// En modo rural/montaña puede especificarse la IP local del Hotspot Wi-Fi (ej. ws://192.168.43.1:8080).
+  /// Conecta al canal de señalización e ingresa a la sala.
+  /// Si [serverUrl] comienza con ws:// o wss:// usa WebSocket (modo Hotspot).
+  /// En caso contrario, usa la red Cloud MQTT.
   Future<void> connectAndJoinRoom({
     required String serverUrl,
     required String roomId,
     required String clientId,
   }) async {
+    _pingTimer?.cancel();
+    _wsSubscription?.cancel();
+    _wsSubscription = null;
+    _channel?.sink.close();
+    _channel = null;
+    _mqttSubscription?.cancel();
+    _mqttSubscription = null;
+    _mqttClient?.disconnect();
+    _mqttClient = null;
+
     _currentRoomId = roomId;
     _clientId = clientId;
     _status = SignalingStatus.connecting;
     notifyListeners();
 
+    final isWs = serverUrl.startsWith('ws://') || serverUrl.startsWith('wss://');
+
+    if (isWs) {
+      await _connectWebSocket(serverUrl, roomId, clientId);
+    } else {
+      await _connectMqttCloud(roomId, clientId);
+    }
+  }
+
+  Future<void> _connectWebSocket(String serverUrl, String roomId, String clientId) async {
     try {
       final uri = Uri.parse(serverUrl);
       _channel = WebSocketChannel.connect(uri);
 
-      _subscription = _channel!.stream.listen(
+      _wsSubscription = _channel!.stream.listen(
         _onMessageReceived,
         onError: (error) {
-          debugPrint('[SignalingService] Error en WebSocket: $error');
+          debugPrint('[SignalingService WS] Error: $error');
           _status = SignalingStatus.error;
           notifyListeners();
         },
         onDone: () {
-          debugPrint('[SignalingService] WebSocket desconectado.');
+          debugPrint('[SignalingService WS] Desconectado.');
           _status = SignalingStatus.disconnected;
           notifyListeners();
         },
@@ -69,16 +98,64 @@ class SignalingService extends ChangeNotifier {
       _status = SignalingStatus.connected;
       notifyListeners();
 
-      // Enviar solicitud de unirse a la sala
       _send({
-        'type': 'join',
+        'type': 'peer_joined',
         'roomId': roomId,
-        'clientId': clientId,
+        'senderId': clientId,
+        'peerId': clientId,
       });
 
       _startLatencyPing();
     } catch (e) {
-      debugPrint('[SignalingService] Excepción conectando: $e');
+      debugPrint('[SignalingService WS] Excepción conectando: $e');
+      _status = SignalingStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _connectMqttCloud(String roomId, String clientId) async {
+    try {
+      final broker = 'broker.emqx.io';
+      final uniqueId = 'rider_${DateTime.now().millisecondsSinceEpoch}_$clientId';
+      final client = MqttServerClient(broker, uniqueId);
+
+      client.port = 1883;
+      client.logging(on: false);
+      client.keepAlivePeriod = 30;
+      client.autoReconnect = true;
+
+      final conn = await client.connect();
+      if (conn?.state == MqttConnectionState.connected) {
+        _mqttClient = client;
+        final topic = 'comunikte/rooms/$roomId';
+        client.subscribe(topic, MqttQos.atLeastOnce);
+
+        _mqttSubscription = client.updates?.listen((List<MqttReceivedMessage<MqttMessage>> c) {
+          final recMess = c[0].payload as MqttPublishMessage;
+          final pt = MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
+          _onMessageReceived(pt);
+        });
+
+        _status = SignalingStatus.connected;
+        notifyListeners();
+
+        // Notificar a otros miembros en la sala que entramos
+        _send({
+          'type': 'peer_joined',
+          'roomId': roomId,
+          'senderId': clientId,
+          'peerId': clientId,
+        });
+
+        _startLatencyPing();
+        debugPrint('[SignalingService MQTT] Conectado exitosamente a sala $roomId');
+      } else {
+        debugPrint('[SignalingService MQTT] Falló conexión: ${conn?.state}');
+        _status = SignalingStatus.error;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[SignalingService MQTT] Error conectando: $e');
       _status = SignalingStatus.error;
       notifyListeners();
     }
@@ -165,6 +242,15 @@ class SignalingService extends ChangeNotifier {
           onRemoteCandidate?.call(candidate);
           break;
 
+        case 'ping':
+          _send({
+            'type': 'pong',
+            'roomId': _currentRoomId,
+            'senderId': _clientId,
+            'timestamp': data['timestamp'],
+          });
+          break;
+
         case 'pong':
           final timestamp = data['timestamp'] as int?;
           if (timestamp != null) {
@@ -180,22 +266,32 @@ class SignalingService extends ChangeNotifier {
   }
 
   void _send(Map<String, dynamic> payload) {
-    if (_channel != null && _status == SignalingStatus.connected) {
-      try {
-        _channel!.sink.add(jsonEncode(payload));
-      } catch (e) {
-        debugPrint('[SignalingService] Error enviando mensaje: $e');
+    if (_status != SignalingStatus.connected) return;
+
+    try {
+      final jsonStr = jsonEncode(payload);
+
+      if (_mqttClient != null && _mqttClient!.connectionStatus?.state == MqttConnectionState.connected) {
+        final builder = MqttClientPayloadBuilder();
+        builder.addString(jsonStr);
+        final topic = 'comunikte/rooms/$_currentRoomId';
+        _mqttClient!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
+      } else if (_channel != null) {
+        _channel!.sink.add(jsonStr);
       }
+    } catch (e) {
+      debugPrint('[SignalingService] Error enviando mensaje: $e');
     }
   }
 
   void _startLatencyPing() {
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _pingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (_status == SignalingStatus.connected) {
         _send({
           'type': 'ping',
           'roomId': _currentRoomId,
+          'senderId': _clientId,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
       }
@@ -209,16 +305,22 @@ class SignalingService extends ChangeNotifier {
 
     if (_currentRoomId != null && _clientId != null) {
       _send({
-        'type': 'leave',
+        'type': 'peer_left',
         'roomId': _currentRoomId,
-        'clientId': _clientId,
+        'senderId': _clientId,
+        'peerId': _clientId,
       });
     }
 
-    await _subscription?.cancel();
-    _subscription = null;
+    await _wsSubscription?.cancel();
+    _wsSubscription = null;
     await _channel?.sink.close();
     _channel = null;
+
+    await _mqttSubscription?.cancel();
+    _mqttSubscription = null;
+    _mqttClient?.disconnect();
+    _mqttClient = null;
 
     _status = SignalingStatus.disconnected;
     _currentRoomId = null;
