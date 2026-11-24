@@ -25,10 +25,22 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Remove Stale Generated Config
+        run: |
+          rm -f ios/Flutter/Generated.xcconfig
+          rm -rf ios/Pods
+          rm -f ios/Podfile.lock
+
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build iOS Frameworks (Release, No Codesign)
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update || pod install
+          cd ..
+
+      - name: Build iOS Application (Release, No Codesign)
         run: flutter build ios --release --no-codesign
 
       - name: Package Payload into IPA
