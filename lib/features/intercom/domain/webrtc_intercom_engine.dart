@@ -143,18 +143,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   Future<void> _createPeerConnection() async {
     _peerConnection = await createPeerConnection(_rtcConfiguration);
 
-    // Asegurar transceptor bidireccional explícito de audio (SendRecv)
-    try {
-      await _peerConnection!.addTransceiver(
-        kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
-        init: RTCRtpTransceiverInit(
-          direction: TransceiverDirection.SendRecv,
-          streams: _localStream != null ? [_localStream!] : [],
-        ),
-      );
-    } catch (_) {}
-
-    // Agregar tracks locales
+    // Agregar tracks locales (asigna automáticamente el transceptor m=audio único)
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
         await _peerConnection!.addTrack(track, _localStream!);
