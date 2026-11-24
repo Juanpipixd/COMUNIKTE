@@ -232,6 +232,7 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
     return GestureDetector(
       onTap: () {
         HapticFeedback.heavyImpact();
+        engine.unmuteAudioRenderer();
         engine.toggleMicMute();
       },
       child: AnimatedContainer(
@@ -287,6 +288,7 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
     return GestureDetector(
       onTapDown: (_) {
         HapticFeedback.heavyImpact();
+        engine.unmuteAudioRenderer();
         engine.setPttPressed(true);
       },
       onTapUp: (_) {

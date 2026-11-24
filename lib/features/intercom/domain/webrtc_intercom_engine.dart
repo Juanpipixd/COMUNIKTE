@@ -162,11 +162,22 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     }
 
     // Escuchar tracks entrantes de la voz remota
-    _peerConnection!.onTrack = (RTCTrackEvent event) {
+    _peerConnection!.onTrack = (RTCTrackEvent event) async {
       if (event.track.kind == 'audio') {
         debugPrint('[WebRtcIntercomEngine] Track de audio remoto recibido: ${event.track.id}');
         event.track.enabled = true;
-        _remoteStream = event.streams.isNotEmpty ? event.streams[0] : null;
+
+        if (event.streams.isNotEmpty) {
+          _remoteStream = event.streams[0];
+        } else {
+          try {
+            final stream = await createLocalMediaStream('remote_stream_${event.track.id}');
+            await stream.addTrack(event.track);
+            _remoteStream = stream;
+          } catch (e) {
+            debugPrint('[WebRtcIntercomEngine] Error envolviendo track remoto: $e');
+          }
+        }
 
         if (_remoteStream != null) {
           remoteAudioRenderer.srcObject = _remoteStream;
@@ -331,6 +342,15 @@ class WebRtcIntercomEngine extends ChangeNotifier {
       _state = IntercomState.disconnected;
       notifyListeners();
     }
+  }
+
+  /// Fuerza la activación de la salida de audio para navegadores (Safari / iOS)
+  void unmuteAudioRenderer() {
+    remoteAudioRenderer.muted = false;
+    if (_remoteStream != null && remoteAudioRenderer.srcObject == null) {
+      remoteAudioRenderer.srcObject = _remoteStream;
+    }
+    notifyListeners();
   }
 
   /// Conmuta entre micrófono Abierto (Hands-free) y Pulsar para Hablar (PTT).
