@@ -188,22 +188,39 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   }
 
   final List<RTCIceCandidate> _pendingIceCandidates = [];
+  Timer? _politeOfferTimer;
 
   /// Cuando un nuevo compañero se une a la sala, creamos la Oferta SDP evitando colisiones (Glare).
   Future<void> _handlePeerJoined(String peerId) async {
     _connectedPeerId = peerId;
     if (_peerConnection == null) await _createPeerConnection();
 
-    // Solo el peer con identificador menor inicia la oferta para evitar glare
+    // Notificar presencia al otro dispositivo
+    signalingService.sendPeerJoined();
+
+    // Si nuestro ID es menor, enviamos la oferta de inmediato
     final myId = signalingService.clientId ?? '';
     final shouldCreateOffer = myId.isEmpty || peerId.isEmpty || myId.compareTo(peerId) < 0;
 
-    if (!shouldCreateOffer) {
-      debugPrint('[WebRtcIntercomEngine] Peer polite: anunciando presencia a $peerId y esperando su oferta SDP');
-      // Avisar al nuevo compañero que estamos aquí para que él (con identificador menor) genere la oferta
-      signalingService.notifyPresence(peerId);
-      return;
+    if (shouldCreateOffer) {
+      _politeOfferTimer?.cancel();
+      await _createAndSendOffer(peerId);
+    } else {
+      debugPrint('[WebRtcIntercomEngine] Peer polite: esperando oferta SDP de $peerId (con fallback a 1.2s)');
+      // Si el otro peer no envía la oferta dentro de 1.2s (por ejemplo versión anterior instalada),
+      // tomamos la iniciativa automáticamente para evitar que queden esperando.
+      _politeOfferTimer?.cancel();
+      _politeOfferTimer = Timer(const Duration(milliseconds: 1200), () async {
+        if (_state != IntercomState.connected) {
+          debugPrint('[WebRtcIntercomEngine] Fallback activado: enviando oferta SDP proactivamente a $peerId');
+          await _createAndSendOffer(peerId);
+        }
+      });
     }
+  }
+
+  Future<void> _createAndSendOffer(String peerId) async {
+    if (_peerConnection == null) await _createPeerConnection();
 
     try {
       final offerConstraints = <String, dynamic>{
@@ -223,6 +240,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
   /// Cuando recibimos una oferta del compañero, respondemos con SDP Answer.
   Future<void> _handleRemoteOffer(RTCSessionDescription offer) async {
+    _politeOfferTimer?.cancel();
     if (_peerConnection == null) await _createPeerConnection();
 
     try {
@@ -322,6 +340,8 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
   /// Detener intercomunicador y liberar recursos de hardware.
   Future<void> stopIntercom() async {
+    _politeOfferTimer?.cancel();
+    _politeOfferTimer = null;
     _localStream?.getTracks().forEach((track) => track.stop());
     await _localStream?.dispose();
     _localStream = null;

@@ -194,6 +194,11 @@ class SignalingService extends ChangeNotifier {
 
   /// Notifica presencia a un compañero específico o a la sala.
   void notifyPresence([String? targetPeerId]) {
+    sendPeerJoined();
+  }
+
+  /// Envía anuncio de unión a la sala.
+  void sendPeerJoined() {
     _send({
       'type': 'peer_joined',
       'roomId': _currentRoomId,
@@ -249,6 +254,9 @@ class SignalingService extends ChangeNotifier {
           break;
 
         case 'ping':
+          if (senderId != null) {
+            onPeerJoined?.call(senderId);
+          }
           _send({
             'type': 'pong',
             'roomId': _currentRoomId,
@@ -258,6 +266,9 @@ class SignalingService extends ChangeNotifier {
           break;
 
         case 'pong':
+          if (senderId != null) {
+            onPeerJoined?.call(senderId);
+          }
           final timestamp = data['timestamp'] as int?;
           if (timestamp != null) {
             final now = DateTime.now().millisecondsSinceEpoch;
