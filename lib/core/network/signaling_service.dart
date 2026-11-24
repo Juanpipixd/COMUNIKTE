@@ -195,11 +195,10 @@ class SignalingService extends ChangeNotifier {
   /// Notifica presencia a un compañero específico o a la sala.
   void notifyPresence([String? targetPeerId]) {
     _send({
-      'type': 'peer_presence',
+      'type': 'peer_joined',
       'roomId': _currentRoomId,
       'senderId': _clientId,
       'peerId': _clientId,
-      if (targetPeerId != null) 'targetPeerId': targetPeerId,
     });
   }
 
