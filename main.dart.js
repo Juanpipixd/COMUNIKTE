@@ -46667,13 +46667,9 @@ case 5:case 4:j=n.a
 i=j.w
 if(i==null)i=""
 if(!(i.length===0||a.length===0||B.d.bp(i,a)<0)){A.cG().$1("[WebRtcIntercomEngine] Peer polite: anunciando presencia a "+a+" y esperando su oferta SDP")
-h=A.m(t.N,t.z)
-h.m(0,"type","peer_presence")
-h.m(0,"roomId",j.r)
-h.m(0,"senderId",j.w)
-h.m(0,"peerId",j.w)
-h.m(0,"targetPeerId",a)
-j.lp(h)
+h=j.r
+g=j.w
+j.lp(A.a8(["type","peer_joined","roomId",h,"senderId",g,"peerId",g],t.N,t.z))
 s=1
 break}p=7
 h=t.N
