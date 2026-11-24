@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mqtt_client/mqtt_client.dart';
-import 'package:mqtt_client/mqtt_server_client.dart';
+import 'mqtt_factory/mqtt_factory.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum SignalingStatus {
@@ -23,7 +23,7 @@ enum SignalingStatus {
 class SignalingService extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription? _wsSubscription;
-  MqttServerClient? _mqttClient;
+  MqttClient? _mqttClient;
   StreamSubscription? _mqttSubscription;
   Timer? _pingTimer;
 
@@ -117,12 +117,7 @@ class SignalingService extends ChangeNotifier {
     try {
       final broker = 'broker.emqx.io';
       final uniqueId = 'rider_${DateTime.now().millisecondsSinceEpoch}_$clientId';
-      final client = MqttServerClient(broker, uniqueId);
-
-      client.port = 1883;
-      client.logging(on: false);
-      client.keepAlivePeriod = 30;
-      client.autoReconnect = true;
+      final client = createPlatformMqttClient(broker, uniqueId);
 
       final conn = await client.connect();
       if (conn?.state == MqttConnectionState.connected) {
