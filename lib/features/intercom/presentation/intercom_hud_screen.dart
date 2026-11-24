@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/audio/audio_routing_service.dart';
 import '../../../core/theme/hud_theme.dart';
@@ -157,6 +158,19 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
                   HapticFeedback.heavyImpact();
                   audioRouting.toggleLoudspeaker();
                 },
+              ),
+
+              // Receptor de audio WebRTC para navegadores web (Safari / Chrome PWA)
+              SizedBox(
+                width: 1,
+                height: 1,
+                child: Opacity(
+                  opacity: 0.01,
+                  child: RTCVideoView(
+                    engine.remoteAudioRenderer,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  ),
+                ),
               ),
             ],
           ),

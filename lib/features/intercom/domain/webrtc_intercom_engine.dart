@@ -32,6 +32,8 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   final AudioRoutingService audioRoutingService;
   final GainController gainController;
 
+  final RTCVideoRenderer remoteAudioRenderer = RTCVideoRenderer();
+
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
@@ -91,6 +93,14 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // 0. Inicializar renderer de audio para navegadores web (Safari / PWA)
+      try {
+        await remoteAudioRenderer.initialize();
+        remoteAudioRenderer.muted = false;
+      } catch (e) {
+        debugPrint('[WebRtcIntercomEngine] Renderer audio init: $e');
+      }
+
       // 1. Inicializar sesión de audio y canal SCO para casco
       await audioRoutingService.initializeAudioPipeline();
 
@@ -133,6 +143,17 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   Future<void> _createPeerConnection() async {
     _peerConnection = await createPeerConnection(_rtcConfiguration);
 
+    // Asegurar transceptor bidireccional explícito de audio (SendRecv)
+    try {
+      await _peerConnection!.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
+        init: RTCRtpTransceiverInit(
+          direction: TransceiverDirection.SendRecv,
+          streams: _localStream != null ? [_localStream!] : [],
+        ),
+      );
+    } catch (_) {}
+
     // Agregar tracks locales
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
@@ -143,9 +164,14 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     // Escuchar tracks entrantes de la voz remota
     _peerConnection!.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'audio') {
-        debugPrint('[WebRtcIntercomEngine] Track de audio remoto recibido.');
+        debugPrint('[WebRtcIntercomEngine] Track de audio remoto recibido: ${event.track.id}');
         event.track.enabled = true;
         _remoteStream = event.streams.isNotEmpty ? event.streams[0] : null;
+
+        if (_remoteStream != null) {
+          remoteAudioRenderer.srcObject = _remoteStream;
+          remoteAudioRenderer.muted = false;
+        }
 
         // VINCULAR AL CONTROLADOR DE GANANCIA POR SOFTWARE (Punto 1.3)
         gainController.attachRemoteAudioTrack(event.track);
@@ -246,7 +272,11 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     try {
       await _peerConnection!.setRemoteDescription(offer);
       await _drainPendingIceCandidates();
-      final answer = await _peerConnection!.createAnswer();
+      final answerConstraints = <String, dynamic>{
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': false,
+      };
+      final answer = await _peerConnection!.createAnswer(answerConstraints);
       await _peerConnection!.setLocalDescription(answer);
       signalingService.sendAnswer(answer);
       debugPrint('[WebRtcIntercomEngine] Respuesta SDP enviada.');
@@ -342,6 +372,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   Future<void> stopIntercom() async {
     _politeOfferTimer?.cancel();
     _politeOfferTimer = null;
+    remoteAudioRenderer.srcObject = null;
     _localStream?.getTracks().forEach((track) => track.stop());
     await _localStream?.dispose();
     _localStream = null;
