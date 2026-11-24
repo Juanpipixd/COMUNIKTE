@@ -187,6 +187,8 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     };
   }
 
+  final List<RTCIceCandidate> _pendingIceCandidates = [];
+
   /// Cuando un nuevo compañero se une a la sala, creamos la Oferta SDP evitando colisiones (Glare).
   Future<void> _handlePeerJoined(String peerId) async {
     _connectedPeerId = peerId;
@@ -197,7 +199,9 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     final shouldCreateOffer = myId.isEmpty || peerId.isEmpty || myId.compareTo(peerId) < 0;
 
     if (!shouldCreateOffer) {
-      debugPrint('[WebRtcIntercomEngine] Peer polite: esperando oferta SDP de $peerId');
+      debugPrint('[WebRtcIntercomEngine] Peer polite: anunciando presencia a $peerId y esperando su oferta SDP');
+      // Avisar al nuevo compañero que estamos aquí para que él (con identificador menor) genere la oferta
+      signalingService.notifyPresence(peerId);
       return;
     }
 
@@ -223,6 +227,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
     try {
       await _peerConnection!.setRemoteDescription(offer);
+      await _drainPendingIceCandidates();
       final answer = await _peerConnection!.createAnswer();
       await _peerConnection!.setLocalDescription(answer);
       signalingService.sendAnswer(answer);
@@ -236,18 +241,39 @@ class WebRtcIntercomEngine extends ChangeNotifier {
   Future<void> _handleRemoteAnswer(RTCSessionDescription answer) async {
     try {
       await _peerConnection?.setRemoteDescription(answer);
+      await _drainPendingIceCandidates();
       debugPrint('[WebRtcIntercomEngine] Descripción remota establecida exitosamente.');
     } catch (e) {
       debugPrint('[WebRtcIntercomEngine] Error configurando respuesta remota: $e');
     }
   }
 
-  /// Manejo de candidatos ICE entrantes.
+  /// Manejo de candidatos ICE entrantes con buffer preventivo.
   Future<void> _handleRemoteCandidate(RTCIceCandidate candidate) async {
     try {
-      await _peerConnection?.addCandidate(candidate);
+      if (_peerConnection == null) {
+        _pendingIceCandidates.add(candidate);
+        return;
+      }
+      final remoteDesc = await _peerConnection!.getRemoteDescription();
+      if (remoteDesc == null) {
+        _pendingIceCandidates.add(candidate);
+        return;
+      }
+      await _peerConnection!.addCandidate(candidate);
     } catch (e) {
       debugPrint('[WebRtcIntercomEngine] Error añadiendo candidato ICE: $e');
+    }
+  }
+
+  Future<void> _drainPendingIceCandidates() async {
+    while (_pendingIceCandidates.isNotEmpty) {
+      final cand = _pendingIceCandidates.removeAt(0);
+      try {
+        await _peerConnection?.addCandidate(cand);
+      } catch (e) {
+        debugPrint('[WebRtcIntercomEngine] Error drenando candidato ICE: $e');
+      }
     }
   }
 

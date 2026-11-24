@@ -69,6 +69,12 @@ class AudioRoutingService extends ChangeNotifier {
 
   /// Activa explícitamente el canal Bluetooth SCO (Hands-Free Profile) para casco.
   Future<void> activateBluetoothSco() async {
+    if (kIsWeb) {
+      _currentRoute = AudioRouteType.loudspeaker;
+      notifyListeners();
+      return;
+    }
+
     try {
       // 1. Invocar puente nativo en Android si está disponible
       if (defaultTargetPlatform == TargetPlatform.android) {

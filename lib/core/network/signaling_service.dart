@@ -192,6 +192,17 @@ class SignalingService extends ChangeNotifier {
     });
   }
 
+  /// Notifica presencia a un compañero específico o a la sala.
+  void notifyPresence([String? targetPeerId]) {
+    _send({
+      'type': 'peer_presence',
+      'roomId': _currentRoomId,
+      'senderId': _clientId,
+      'peerId': _clientId,
+      if (targetPeerId != null) 'targetPeerId': targetPeerId,
+    });
+  }
+
   /// Procesa los mensajes JSON entrantes de la señalización.
   void _onMessageReceived(dynamic message) {
     try {
@@ -204,8 +215,9 @@ class SignalingService extends ChangeNotifier {
 
       switch (type) {
         case 'peer_joined':
+        case 'peer_presence':
           final peerId = data['peerId'] as String? ?? 'companion';
-          debugPrint('[SignalingService] Compañero conectado: $peerId');
+          debugPrint('[SignalingService] Compañero detectado ($type): $peerId');
           onPeerJoined?.call(peerId);
           break;
 
