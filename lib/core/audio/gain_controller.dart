@@ -15,6 +15,10 @@ class GainController extends ChangeNotifier {
   bool _isMuted = false;
   double _gainBeforeMute = 1.0;
 
+  /// Callback para sincronizar cambios de ganancia con el motor WebRTC,
+  /// el reproductor de audio y el procesador de Web Audio API (Safari/Web).
+  void Function(double gain, bool isMuted)? onGainChanged;
+
   double get softwareGain => _softwareGain;
   bool get isMuted => _isMuted;
   int get gainPercentage => (_softwareGain * 100).round();
@@ -52,17 +56,23 @@ class GainController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Aplica la ganancia directamente sobre el MediaStreamTrack mediante WebRTC Helper.
+  /// Aplica la ganancia directamente sobre el MediaStreamTrack mediante WebRTC Helper
+  /// y activa los callbacks hacia Web Audio API y el renderer.
   void _applyGainToTrack() {
     final track = _remoteAudioTrack;
-    if (track == null) return;
-
-    try {
-      // Helper.setVolume aplica la ganancia PCM sobre el track de audio remoto
-      Helper.setVolume(_softwareGain, track);
-    } catch (e) {
-      debugPrint('[GainController] Error aplicando ganancia al track: $e');
+    if (track != null) {
+      // Si está silenciado o en 0%, deshabilitar el track garantiza silencio total
+      track.enabled = !_isMuted && _softwareGain > 0.0;
+      try {
+        // Helper.setVolume aplica la ganancia PCM sobre el track de audio remoto en Android/iOS
+        Helper.setVolume(_isMuted ? 0.0 : _softwareGain, track);
+      } catch (e) {
+        debugPrint('[GainController] Error aplicando ganancia al track: $e');
+      }
     }
+
+    // Notificar al motor para actualizar renderer y Web Audio API
+    onGainChanged?.call(_softwareGain, _isMuted);
   }
 
   /// Presets rápidos pensados para motociclistas con guantes.

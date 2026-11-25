@@ -67,6 +67,17 @@ class AudioRoutingService extends ChangeNotifier {
     }
   }
 
+  /// Conmuta la bandera de mantener pantalla activa (Keep Screen On) a nivel nativo.
+  Future<void> setKeepScreenOn(bool keepOn) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _nativeChannel.invokeMethod('setKeepScreenOn', {'enable': keepOn});
+      } catch (e) {
+        debugPrint('[AudioRoutingService] Error configurando KeepScreenOn nativo: $e');
+      }
+    }
+  }
+
   /// Activa explícitamente el canal Bluetooth SCO (Hands-Free Profile) para casco.
   Future<void> activateBluetoothSco() async {
     if (kIsWeb) {

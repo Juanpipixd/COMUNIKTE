@@ -34,6 +34,185 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script>
+    // ========================================================
+    // 1. SCREEN WAKE LOCK (MANTENER PANTALLA ACTIVA EN MOTO)
+    // ========================================================
+    let _screenWakeLock = null;
+    let _wakeLockRequested = false;
+
+    async function requestScreenWakeLock() {
+      _wakeLockRequested = true;
+      try {
+        if ('wakeLock' in navigator && !_screenWakeLock) {
+          _screenWakeLock = await navigator.wakeLock.request('screen');
+          console.log('[COMUNIKTE] Screen Wake Lock ACTIVO (Pantalla encendida permanente)');
+          _screenWakeLock.addEventListener('release', () => {
+            console.log('[COMUNIKTE] Screen Wake Lock liberado por sistema');
+            _screenWakeLock = null;
+          });
+        }
+      } catch (err) {
+        console.warn('[COMUNIKTE] WakeLock aviso:', err);
+      }
+    }
+
+    async function releaseScreenWakeLock() {
+      _wakeLockRequested = false;
+      if (_screenWakeLock !== null) {
+        try {
+          await _screenWakeLock.release();
+          _screenWakeLock = null;
+          console.log('[COMUNIKTE] Screen Wake Lock DESACTIVADO');
+        } catch (err) {}
+      }
+    }
+
+    // Re-adquirir Wake Lock al volver a la pestaña activa (iOS Safari / PWA)
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible' && _wakeLockRequested) {
+        await requestScreenWakeLock();
+      }
+    });
+
+    // Re-adquirir Wake Lock y desbloquear AudioContext en cualquier interacción táctil
+    ['touchstart', 'touchend', 'click'].forEach(evt => {
+      document.addEventListener(evt, () => {
+        if (_wakeLockRequested && !_screenWakeLock) {
+          requestScreenWakeLock();
+        }
+        if (window._audioCtx && window._audioCtx.state === 'suspended') {
+          window._audioCtx.resume().catch(() => {});
+        }
+      }, { passive: true });
+    });
+
+    window.requestScreenWakeLock = requestScreenWakeLock;
+    window.releaseScreenWakeLock = releaseScreenWakeLock;
+
+    // ========================================================
+    // 2. SOFTWARE GAIN & WEB AUDIO API (AMPLIFICACIÓN DIGITAL PCM 0% - 200%)
+    // ========================================================
+    let _audioCtx = null;
+    let _gainNode = null;
+    let _currentSource = null;
+    let _currentGain = 1.0;
+    let _isMuted = false;
+
+    function getAudioContext() {
+      if (!_audioCtx) {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtxClass) {
+          _audioCtx = new AudioCtxClass();
+          window._audioCtx = _audioCtx;
+        }
+      }
+      if (_audioCtx && _audioCtx.state === 'suspended') {
+        _audioCtx.resume().catch(() => {});
+      }
+      return _audioCtx;
+    }
+
+    window.attachStreamToWebAudio = function(stream) {
+      try {
+        const ctx = getAudioContext();
+        if (!ctx) return false;
+
+        if (!stream) {
+          const mediaEls = document.querySelectorAll('video, audio');
+          for (let i = 0; i < mediaEls.length; i++) {
+            if (mediaEls[i].srcObject) {
+              stream = mediaEls[i].srcObject;
+              break;
+            }
+          }
+        }
+
+        if (!stream) return false;
+
+        if (_currentSource) {
+          try { _currentSource.disconnect(); } catch (e) {}
+        }
+
+        _currentSource = ctx.createMediaStreamSource(stream);
+
+        if (!_gainNode) {
+          _gainNode = ctx.createGain();
+          _gainNode.connect(ctx.destination);
+        }
+
+        const effectiveGain = _isMuted ? 0.0 : _currentGain;
+        _gainNode.gain.setValueAtTime(effectiveGain, ctx.currentTime);
+        _currentSource.connect(_gainNode);
+
+        console.log('[COMUNIKTE] Web Audio GainNode conectado con éxito. Ganancia PCM:', effectiveGain);
+
+        // Silenciar la reproducción nativa del elemento DOM para que la salida
+        // sea exclusivamente la señal procesada y amplificada por el GainNode
+        const mediaEls = document.querySelectorAll('video, audio');
+        mediaEls.forEach(el => {
+          if (el.srcObject === stream) {
+            el.muted = true;
+          }
+        });
+
+        return true;
+      } catch (err) {
+        console.warn('[COMUNIKTE] attachStreamToWebAudio error:', err);
+        return false;
+      }
+    };
+
+    window.setWebSoftwareGain = function(gain) {
+      _currentGain = Number(gain);
+      if (isNaN(_currentGain)) _currentGain = 1.0;
+      _isMuted = (_currentGain === 0.0);
+
+      const ctx = getAudioContext();
+      if (_gainNode && ctx) {
+        try {
+          const effectiveGain = _isMuted ? 0.0 : _currentGain;
+          _gainNode.gain.setValueAtTime(effectiveGain, ctx.currentTime);
+          console.log('[COMUNIKTE] Ganancia PCM Web Audio ajustada:', effectiveGain);
+        } catch (e) {
+          console.warn('[COMUNIKTE] Error asignando ganancia:', e);
+        }
+      }
+
+      if (!_currentSource) {
+        window.attachStreamToWebAudio();
+      }
+
+      // Fallback para elementos multimedia si Web Audio no está conectado
+      const mediaEls = document.querySelectorAll('video, audio');
+      mediaEls.forEach(el => {
+        try {
+          if (_currentSource && _gainNode) {
+            el.muted = true;
+          } else {
+            el.muted = _isMuted;
+            el.volume = Math.max(0.0, Math.min(1.0, _currentGain));
+          }
+        } catch (e) {}
+      });
+    };
+
+    // Auto-detectar cuando RTCVideoView agregue el stream remoto al DOM
+    const _mediaObserver = new MutationObserver(() => {
+      if (!_currentSource) {
+        window.attachStreamToWebAudio();
+      }
+    });
+    document.addEventListener('DOMContentLoaded', () => {
+      _mediaObserver.observe(document.body, { childList: true, subtree: true });
+    });
+    setInterval(() => {
+      if (!_currentSource) {
+        window.attachStreamToWebAudio();
+      }
+    }, 1200);
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

@@ -45,6 +45,15 @@ class MainActivity : FlutterActivity() {
                     val focused = requestDuckingAudioFocus()
                     result.success(focused)
                 }
+                "setKeepScreenOn" -> {
+                    val enable = call.argument<Boolean>("enable") ?: true
+                    if (enable) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -102,6 +111,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         stopSco()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }

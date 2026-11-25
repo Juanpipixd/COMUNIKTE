@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/audio/audio_routing_service.dart';
 import '../../../core/audio/gain_controller.dart';
+import '../../../core/audio/platform_gain/platform_gain.dart';
 import '../../../core/network/signaling_service.dart';
 
 enum IntercomState {
@@ -77,6 +79,17 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     required this.gainController,
   }) {
     _bindSignalingEvents();
+    _bindGainController();
+  }
+
+  void _bindGainController() {
+    gainController.onGainChanged = (double gain, bool isMuted) {
+      final shouldMute = isMuted || gain == 0.0;
+      try {
+        remoteAudioRenderer.muted = shouldMute;
+      } catch (_) {}
+      applyPlatformGain(gain, isMuted);
+    };
   }
 
   void _bindSignalingEvents() {
@@ -93,6 +106,15 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Activar WakeLock para mantener pantalla encendida en marcha
+      try {
+        await WakelockPlus.enable();
+      } catch (e) {
+        debugPrint('[WebRtcIntercomEngine] Error activando WakelockPlus: $e');
+      }
+      requestScreenWakeLockPlatform();
+      await audioRoutingService.setKeepScreenOn(true);
+
       // 0. Inicializar renderer de audio para navegadores web (Safari / PWA)
       try {
         await remoteAudioRenderer.initialize();
@@ -154,7 +176,8 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     _peerConnection!.onTrack = (RTCTrackEvent event) async {
       if (event.track.kind == 'audio') {
         debugPrint('[WebRtcIntercomEngine] Track de audio remoto recibido: ${event.track.id}');
-        event.track.enabled = true;
+        final shouldEnable = !gainController.isMuted && gainController.softwareGain > 0.0;
+        event.track.enabled = shouldEnable;
 
         if (event.streams.isNotEmpty) {
           _remoteStream = event.streams[0];
@@ -170,11 +193,13 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
         if (_remoteStream != null) {
           remoteAudioRenderer.srcObject = _remoteStream;
-          remoteAudioRenderer.muted = false;
+          remoteAudioRenderer.muted = !shouldEnable;
+          setupWebAudioStream();
         }
 
         // VINCULAR AL CONTROLADOR DE GANANCIA POR SOFTWARE (Punto 1.3)
         gainController.attachRemoteAudioTrack(event.track);
+        applyPlatformGain(gainController.softwareGain, gainController.isMuted);
 
         _state = IntercomState.connected;
         notifyListeners();
@@ -335,10 +360,13 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
   /// Fuerza la activación de la salida de audio para navegadores (Safari / iOS)
   void unmuteAudioRenderer() {
-    remoteAudioRenderer.muted = false;
+    final shouldMute = gainController.isMuted || gainController.softwareGain == 0.0;
+    remoteAudioRenderer.muted = shouldMute;
     if (_remoteStream != null && remoteAudioRenderer.srcObject == null) {
       remoteAudioRenderer.srcObject = _remoteStream;
     }
+    setupWebAudioStream();
+    applyPlatformGain(gainController.softwareGain, gainController.isMuted);
     notifyListeners();
   }
 
@@ -379,6 +407,15 @@ class WebRtcIntercomEngine extends ChangeNotifier {
 
   /// Detener intercomunicador y liberar recursos de hardware.
   Future<void> stopIntercom() async {
+    // Desactivar WakeLock
+    try {
+      await WakelockPlus.disable();
+    } catch (e) {
+      debugPrint('[WebRtcIntercomEngine] Error desactivando WakelockPlus: $e');
+    }
+    releaseScreenWakeLockPlatform();
+    await audioRoutingService.setKeepScreenOn(false);
+
     _politeOfferTimer?.cancel();
     _politeOfferTimer = null;
     remoteAudioRenderer.srcObject = null;

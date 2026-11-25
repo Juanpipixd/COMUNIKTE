@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/audio/audio_routing_service.dart';
+import '../../../core/audio/platform_gain/platform_gain.dart';
 import '../../../core/theme/hud_theme.dart';
 import '../domain/webrtc_intercom_engine.dart';
 import 'widgets/connection_badge.dart';
@@ -24,6 +26,30 @@ class IntercomHudScreen extends StatefulWidget {
 }
 
 class _IntercomHudScreenState extends State<IntercomHudScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Bloquear suspensión de pantalla mientras el HUD esté activo
+    try {
+      WakelockPlus.enable();
+    } catch (_) {}
+    requestScreenWakeLockPlatform();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AudioRoutingService>().setKeepScreenOn(true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    try {
+      WakelockPlus.disable();
+    } catch (_) {}
+    releaseScreenWakeLockPlatform();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final engine = context.watch<WebRtcIntercomEngine>();
