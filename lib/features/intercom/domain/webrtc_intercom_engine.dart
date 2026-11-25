@@ -89,6 +89,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
         remoteAudioRenderer.muted = shouldMute;
       } catch (_) {}
       applyPlatformGain(gain, isMuted);
+      audioRoutingService.setNativeSoftwareGain(shouldMute ? 0.0 : gain);
     };
   }
 
@@ -200,6 +201,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
         // VINCULAR AL CONTROLADOR DE GANANCIA POR SOFTWARE (Punto 1.3)
         gainController.attachRemoteAudioTrack(event.track);
         applyPlatformGain(gainController.softwareGain, gainController.isMuted);
+        audioRoutingService.setNativeSoftwareGain(gainController.isMuted ? 0.0 : gainController.softwareGain);
 
         _state = IntercomState.connected;
         notifyListeners();
@@ -367,6 +369,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     }
     setupWebAudioStream();
     applyPlatformGain(gainController.softwareGain, gainController.isMuted);
+    audioRoutingService.setNativeSoftwareGain(gainController.isMuted ? 0.0 : gainController.softwareGain);
     notifyListeners();
   }
 
@@ -415,6 +418,7 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     }
     releaseScreenWakeLockPlatform();
     await audioRoutingService.setKeepScreenOn(false);
+    await audioRoutingService.setNativeSoftwareGain(0.0);
 
     _politeOfferTimer?.cancel();
     _politeOfferTimer = null;

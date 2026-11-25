@@ -64,14 +64,15 @@ class GainController extends ChangeNotifier {
       // Si está silenciado o en 0%, deshabilitar el track garantiza silencio total
       track.enabled = !_isMuted && _softwareGain > 0.0;
       try {
-        // Helper.setVolume aplica la ganancia PCM sobre el track de audio remoto en Android/iOS
-        Helper.setVolume(_isMuted ? 0.0 : _softwareGain, track);
+        // Helper.setVolume aplica la ganancia PCM sobre el track de audio remoto en Android/iOS (acotado a 1.0)
+        final trackVol = _isMuted ? 0.0 : _softwareGain.clamp(0.0, 1.0);
+        Helper.setVolume(trackVol, track);
       } catch (e) {
         debugPrint('[GainController] Error aplicando ganancia al track: $e');
       }
     }
 
-    // Notificar al motor para actualizar renderer y Web Audio API
+    // Notificar al motor para actualizar renderer, Web Audio API y Android LoudnessEnhancer
     onGainChanged?.call(_softwareGain, _isMuted);
   }
 

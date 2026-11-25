@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,6 +15,7 @@ class MainActivity : FlutterActivity() {
     private var audioManager: AudioManager? = null
     private var focusRequest: AudioFocusRequest? = null
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { /* Non-intrusive focus management */ }
+    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -54,6 +56,11 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(true)
                 }
+                "setSoftwareGain" -> {
+                    val gain = call.argument<Double>("gain") ?: 1.0
+                    setSoftwareGain(gain)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -74,10 +81,73 @@ class MainActivity : FlutterActivity() {
 
     private fun stopSco() {
         try {
+            releaseLoudnessEnhancer()
             val am = audioManager ?: return
             am.stopBluetoothSco()
             am.isBluetoothScoOn = false
             am.mode = AudioManager.MODE_NORMAL
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun setSoftwareGain(gain: Double) {
+        try {
+            val am = audioManager
+            if (gain <= 0.0) {
+                loudnessEnhancer?.enabled = false
+                loudnessEnhancer?.setTargetGain(0)
+                return
+            }
+
+            // Para valores entre 0.0 y 1.0: ajustar volumen de la llamada de voz
+            if (gain <= 1.0) {
+                loudnessEnhancer?.enabled = false
+                loudnessEnhancer?.setTargetGain(0)
+                if (am != null) {
+                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                    val targetVol = (maxVol * gain).toInt().coerceIn(1, maxVol)
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, targetVol, 0)
+                }
+            } else {
+                // Para valores > 1.0 (150% RUTA, 200% MAX):
+                // 1. Asegurar volumen máximo en STREAM_VOICE_CALL
+                if (am != null) {
+                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
+                }
+
+                // 2. Activar LoudnessEnhancer para amplificación digital PCM extra
+                if (loudnessEnhancer == null) {
+                    try {
+                        loudnessEnhancer = LoudnessEnhancer(0)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // Escalar ganancia objetivo en millibels (mB):
+                // 1.0x -> 0 mB
+                // 1.5x -> 1200 mB (+12 dB)
+                // 2.0x -> 2200 mB (+22 dB)
+                val targetMb = when {
+                    gain <= 1.5 -> ((gain - 1.0) / 0.5 * 1200.0).toInt()
+                    else -> (1200.0 + ((gain - 1.5) / 0.5 * 1000.0)).toInt()
+                }.coerceIn(0, 3000)
+
+                loudnessEnhancer?.setTargetGain(targetMb)
+                loudnessEnhancer?.enabled = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun releaseLoudnessEnhancer() {
+        try {
+            loudnessEnhancer?.enabled = false
+            loudnessEnhancer?.release()
+            loudnessEnhancer = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -112,6 +182,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        releaseLoudnessEnhancer()
         stopSco()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }

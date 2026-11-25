@@ -78,6 +78,17 @@ class AudioRoutingService extends ChangeNotifier {
     }
   }
 
+  /// Aplica ganancia por software en Android nativo usando LoudnessEnhancer y StreamVolume.
+  Future<void> setNativeSoftwareGain(double gain) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _nativeChannel.invokeMethod('setSoftwareGain', {'gain': gain});
+      } catch (e) {
+        debugPrint('[AudioRoutingService] Error configurando ganancia nativa Android: $e');
+      }
+    }
+  }
+
   /// Activa explícitamente el canal Bluetooth SCO (Hands-Free Profile) para casco.
   Future<void> activateBluetoothSco() async {
     if (kIsWeb) {
