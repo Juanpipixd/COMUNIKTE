@@ -66,6 +66,26 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
 
   Future<void> _openQrScanner() async {
     HapticFeedback.mediumImpact();
+
+    // 1. Solicitar y verificar permiso de cámara explícitamente
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Se requiere permiso de cámara para escanear el código QR'),
+            backgroundColor: HudTheme.dangerNeon,
+            action: SnackBarAction(
+              label: 'AJUSTES',
+              textColor: Colors.white,
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final currentRoom = _roomController.text.trim();
     final currentServer = _serverController.text.trim();
     final qrPayload = 'comunikte://join?room=$currentRoom&server=$currentServer';

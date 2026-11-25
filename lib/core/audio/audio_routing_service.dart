@@ -59,8 +59,18 @@ class AudioRoutingService extends ChangeNotifier {
         _handleDeviceChanges(devices);
       });
 
-      // Forzar Bluetooth SCO / Auricular de Casco por defecto
-      await activateBluetoothSco();
+      // Si hay un dispositivo Bluetooth activo conectar a casco, sino altavoz por defecto
+      final hasBluetooth = _devicesSubscription != null; // Se actualizará con dispositivos
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final isSco = await _nativeChannel.invokeMethod<bool>('isBluetoothScoOn') ?? false;
+        if (isSco) {
+          await activateBluetoothSco();
+        } else {
+          await switchToLoudspeaker();
+        }
+      } else {
+        await switchToLoudspeaker();
+      }
       await refreshAudioDevices();
     } catch (e) {
       debugPrint('[AudioRoutingService] Error inicializando pipeline de audio: $e');
@@ -75,6 +85,31 @@ class AudioRoutingService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[AudioRoutingService] Error configurando KeepScreenOn nativo: $e');
       }
+    }
+  }
+
+  /// Conmuta al altavoz del teléfono a máximo volumen audible.
+  Future<void> switchToLoudspeaker() async {
+    if (kIsWeb) {
+      _currentRoute = AudioRouteType.loudspeaker;
+      notifyListeners();
+      return;
+    }
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await _nativeChannel.invokeMethod('stopBluetoothSco');
+          await _nativeChannel.invokeMethod('setSpeakerphone', {'enable': true});
+        } catch (_) {}
+      }
+      await Helper.setSpeakerphoneOn(true);
+      await Helper.selectAudioOutput('speaker');
+      _isBluetoothScoActive = false;
+      _currentRoute = AudioRouteType.loudspeaker;
+      notifyListeners();
+      debugPrint('[AudioRoutingService] Altavoz activado.');
+    } catch (e) {
+      debugPrint('[AudioRoutingService] Error conmutando a altavoz: $e');
     }
   }
 

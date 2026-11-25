@@ -93,31 +93,20 @@ class MainActivity : FlutterActivity() {
 
     private fun setSoftwareGain(gain: Double) {
         try {
-            val am = audioManager
+            val am = audioManager ?: return
             if (gain <= 0.0) {
                 loudnessEnhancer?.enabled = false
                 loudnessEnhancer?.setTargetGain(0)
                 return
             }
 
-            // Para valores entre 0.0 y 1.0: ajustar volumen de la llamada de voz
-            if (gain <= 1.0) {
-                loudnessEnhancer?.enabled = false
-                loudnessEnhancer?.setTargetGain(0)
-                if (am != null) {
-                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-                    val targetVol = (maxVol * gain).toInt().coerceIn(1, maxVol)
-                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, targetVol, 0)
-                }
-            } else {
-                // Para valores > 1.0 (150% RUTA, 200% MAX):
-                // 1. Asegurar volumen máximo en STREAM_VOICE_CALL
-                if (am != null) {
-                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
-                }
+            // Aplicar volumen a la llamada de voz (STREAM_VOICE_CALL)
+            val maxCallVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            val targetCallVol = (maxCallVol * gain.coerceAtMost(1.0)).toInt().coerceIn(1, maxCallVol)
+            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, targetCallVol, 0)
 
-                // 2. Activar LoudnessEnhancer para amplificación digital PCM extra
+            // Si gain > 1.0 (150% RUTA, 200% MAX), activar LoudnessEnhancer con ganancia intensa
+            if (gain > 1.0) {
                 if (loudnessEnhancer == null) {
                     try {
                         loudnessEnhancer = LoudnessEnhancer(0)
@@ -126,17 +115,18 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Escalar ganancia objetivo en millibels (mB):
-                // 1.0x -> 0 mB
-                // 1.5x -> 1200 mB (+12 dB)
-                // 2.0x -> 2200 mB (+22 dB)
+                // 1.5x -> 1500 mB (+15 dB)
+                // 2.0x -> 3000 mB (+30 dB boost masivo)
                 val targetMb = when {
-                    gain <= 1.5 -> ((gain - 1.0) / 0.5 * 1200.0).toInt()
-                    else -> (1200.0 + ((gain - 1.5) / 0.5 * 1000.0)).toInt()
-                }.coerceIn(0, 3000)
+                    gain <= 1.5 -> ((gain - 1.0) / 0.5 * 1500.0).toInt()
+                    else -> (1500.0 + ((gain - 1.5) / 0.5 * 1500.0)).toInt()
+                }.coerceIn(0, 3500)
 
-                loudnessEnhancer?.setTargetGain(targetMb)
                 loudnessEnhancer?.enabled = true
+                loudnessEnhancer?.setTargetGain(targetMb)
+            } else {
+                loudnessEnhancer?.setTargetGain(0)
+                loudnessEnhancer?.enabled = false
             }
         } catch (e: Exception) {
             e.printStackTrace()

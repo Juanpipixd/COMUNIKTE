@@ -404,6 +404,13 @@ class WebRtcIntercomEngine extends ChangeNotifier {
     if (_localStream != null) {
       for (final track in _localStream!.getAudioTracks()) {
         track.enabled = enabled;
+        if (!kIsWeb) {
+          try {
+            Helper.setMicrophoneMute(!enabled, track);
+          } catch (e) {
+            debugPrint('[WebRtcIntercomEngine] Error en Helper.setMicrophoneMute: $e');
+          }
+        }
       }
     }
   }

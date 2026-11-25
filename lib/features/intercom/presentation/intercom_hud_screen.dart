@@ -186,18 +186,19 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
                 },
               ),
 
-              // Receptor de audio WebRTC para navegadores web (Safari / Chrome PWA)
-              SizedBox(
-                width: 1,
-                height: 1,
-                child: Opacity(
-                  opacity: 0.01,
-                  child: RTCVideoView(
-                    engine.remoteAudioRenderer,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              // Receptor de audio WebRTC solo para navegadores web (Safari / Chrome PWA)
+              if (kIsWeb)
+                SizedBox(
+                  width: 1,
+                  height: 1,
+                  child: Opacity(
+                    opacity: 0.01,
+                    child: RTCVideoView(
+                      engine.remoteAudioRenderer,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -256,9 +257,9 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
 
   Widget _buildMuteGiantButton(WebRtcIntercomEngine engine, bool isMuted) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         HapticFeedback.heavyImpact();
-        engine.unmuteAudioRenderer();
         engine.toggleMicMute();
       },
       child: AnimatedContainer(
@@ -312,9 +313,9 @@ class _IntercomHudScreenState extends State<IntercomHudScreen> {
 
   Widget _buildPttGiantButton(WebRtcIntercomEngine engine, bool isPressed) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTapDown: (_) {
         HapticFeedback.heavyImpact();
-        engine.unmuteAudioRenderer();
         engine.setPttPressed(true);
       },
       onTapUp: (_) {

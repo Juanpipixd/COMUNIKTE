@@ -154,6 +154,35 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         MobileScanner(
           controller: _cameraController,
           onDetect: _onDetect,
+          errorBuilder: (context, error, child) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.videocam_off_rounded, size: 54, color: HudTheme.dangerNeon),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No se pudo abrir la cámara (${error.errorCode.name})',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: HudTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: HudTheme.accentNeon),
+                      icon: const Icon(Icons.refresh_rounded, color: Colors.black),
+                      label: const Text('REINTENTAR / PERMISOS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        _cameraController.start();
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         // Marco de escaneo HUD
         Container(
